@@ -1,0 +1,966 @@
+# -*- Mode: Autoconf; tab-width: 4; indent-tabs-mode: nil -*-
+# Process this file with autoconf to produce a configure script.
+
+AC_PREREQ([2.63])
+
+AC_INIT([loolwsd], [6.4.0.2], [libreoffice@lists.freedesktop.org])
+LT_INIT([shared, disable-static, dlopen])
+
+AM_INIT_AUTOMAKE([1.10 subdir-objects tar-pax -Wno-portability])
+
+AC_CONFIG_MACRO_DIR([m4])
+
+# We don't want to require pkg-config and PKG_CHECK_MODULES on macOS
+m4_if(m4_esyscmd_s([uname -s]),Linux,[],[m4_define([PKG_CHECK_MODULES],[])])
+
+LOOLWSD_VERSION_MAJOR=`echo $VERSION | awk -F. '{print $1}'`
+LOOLWSD_VERSION_MINOR=`echo $VERSION | awk -F. '{print $2}'`
+LOOLWSD_VERSION_MICRO=`echo $VERSION | awk -F. '{print $3}'`
+LOOLWSD_VERSION="$LOOLWSD_VERSION_MAJOR.$LOOLWSD_VERSION_MINOR.$LOOLWSD_VERSION_MICRO"
+
+AC_SUBST([LOOLWSD_VERSION_MAJOR])
+AC_SUBST([LOOLWSD_VERSION_MINOR])
+AC_SUBST([LOOLWSD_VERSION_MICRO])
+AC_SUBST([LOOLWSD_VERSION])
+
+AC_DEFINE_UNQUOTED([LOOLWSD_VERSION],[["$LOOLWSD_VERSION"]],[LibreOffice Online WebSocket server version])
+
+# try to add a git hash for a version if we're developing
+LOOLWSD_VERSION_HASH="$LOOLWSD_VERSION"
+git_hash=`cd ${srcdir} && ( cat dist_git_hash 2> /dev/null || git log -1 --format=%h 2> /dev/null )`
+if test "z$git_hash" != "z"; then
+   LOOLWSD_VERSION_HASH=$git_hash
+fi
+AC_SUBST([LOOLWSD_VERSION_HASH])
+
+AC_DEFINE_UNQUOTED([LOOLWSD_VERSION_HASH],[["$LOOLWSD_VERSION_HASH"]],[LibreOffice Online git hash if present])
+
+AC_CONFIG_SRCDIR([wsd/LOOLWSD.cpp])
+
+AC_CONFIG_HEADERS([config.h])
+
+# Checks for programs.
+AC_PROG_CXX
+AC_PROG_CC
+
+AC_LANG_PUSH([C++])
+
+AS_IF([test `uname -s` = Linux],
+      [AC_PATH_PROG([SETCAP], setcap,[],[/bin:/usr/bin:/sbin:/usr/sbin])]
+       AS_IF([test -z "$SETCAP"],
+       [AC_MSG_ERROR([The setcap command is needed. It might be in a package called libcap-progs.])]))
+
+# check for python modules
+for MODULE in lxml polib; do
+    AC_MSG_CHECKING([for ${MODULE} for python3])
+    if /usr/bin/env python3 -c "import ${MODULE}" 2> /dev/null ; then
+        AC_MSG_RESULT([yes])
+    else
+        AC_MSG_RESULT([no])
+        AS_IF([test `uname -s` = Linux],
+              [AC_MSG_ERROR([${MODULE} for python3 is needed. It might be in a package called python3-${MODULE}.])],
+              [AC_MSG_WARN([${MODULE} for python3 is needed. It might be in a package called python3-${MODULE}. But
+               if you are building the JS bits on another (Linux) machine, that doesn't matter])])
+    fi
+done
+
+# Declare options
+AC_ARG_ENABLE([debug],
+              AS_HELP_STRING([--enable-debug],
+                             [Enable debugging, link with debugging version of Poco libraries]))
+
+AC_ARG_ENABLE([browsersync],
+              AS_HELP_STRING([--enable-browsersync],
+                             [Don't copy files to the target directory but create the symlink to allow browsersync usage]))
+
+AC_ARG_ENABLE([anonymization],
+              AS_HELP_STRING([--enable-anonymization],
+                             [Enable anonymization/obfuscation of user-data in logs]))
+
+AC_ARG_ENABLE([iosapp],
+              AS_HELP_STRING([--enable-iosapp],
+                             [Use in a tree where the only purpose is to build the HTML and CSS stuff
+                              to be copied to a Mac where the iOS app is being built, *or* in a tree where
+                              you will build the iOS app.]))
+
+AC_ARG_WITH([iosapp-appicon],
+              AS_HELP_STRING([--with-iosapp-appicon=<path>],
+                             [Point to a directory containing an icon set to use instead of the default empty one.]))
+
+AC_ARG_WITH([iosapp-fonts],
+              AS_HELP_STRING([--with-iosapp-fonts=<path>],
+                             [Point to a directory containing .ttf or .otf files to be bundled in the iOS app (and
+                              thus installed on the device for use of the LO core code).]))
+
+AC_ARG_WITH([app-branding],
+              AS_HELP_STRING([--with-app-branding=<path>],
+                             [Point to a directory containing a branding.css file and possibly other files it references,
+                              to be bundled and used by the iOS app. The directory structure is copied to
+                              "loleaflet/dist/branding" and that directory ends upp in the app bundle as "branding".]))
+
+AC_ARG_ENABLE([gtkapp],
+              AS_HELP_STRING([--enable-gtkapp],
+                             [Use in a tree where the only purpose is to build the gtk+ "app" that is supposed
+                              to work similarly to the iOS app, from the JavaScript and the pseudo WebSocket
+                              message plumbing point of view. See gtk/README.]))
+
+AC_ARG_ENABLE([androidapp],
+              AS_HELP_STRING([--enable-androidapp],
+                             [Use in a tree where the only purpose is to build the Android app that is supposed
+                              to work similarly to the iOS app, from the JavaScript and the pseudo WebSocket
+                              message plumbing point of view.]))
+
+AC_ARG_WITH(android-package-name,
+            AS_HELP_STRING([--with-android-package-name="org.libreoffice.androidapp"],
+                           [Set Android package name of the build.]),
+,)
+
+AC_ARG_WITH(android-package-versioncode,
+            AS_HELP_STRING([--with-android-package-versioncode=20],
+                           [Set the versionCode for the Android package.]),
+,)
+
+AC_ARG_WITH([app-name],
+              AS_HELP_STRING([--with-app-name=<name>],
+                             [Set the user-visible name of the app you build.]))
+
+AC_ARG_WITH([icon-theme],
+              AS_HELP_STRING([--with-icon-theme=<path>],
+                             [Path to custom icon theme (similiar to loleflet/images).]))
+
+AC_ARG_WITH(vendor,
+    AS_HELP_STRING([--with-vendor="John the Builder"],
+        [Set vendor of the build.]),
+,)
+
+AC_ARG_WITH(info-url,
+    AS_HELP_STRING([--with-info-url="https://john-the-builder.org"],
+        [Set the info url of the build.]),
+,)
+
+AC_ARG_ENABLE([seccomp],
+              AS_HELP_STRING([--disable-seccomp],
+                             [Disable use of linux/seccomp.h header when kernel on target system does not support it.
+                              Beware of the security consequences!]))
+AC_ARG_WITH([lokit-path],
+            AS_HELP_STRING([--with-lokit-path=<path>],
+                           [Path to the "include" directory with the LibreOfficeKit headers]))
+
+AC_ARG_WITH([lo-path],
+            AS_HELP_STRING([--with-lo-path=<path>],
+                           [Path to a working installation directory or instdir of LibreOffice]))
+
+AC_ARG_WITH([lo-builddir],
+            AS_HELP_STRING([--with-lo-builddir=<path>],
+                           [Mandatory, and relevant, in a tree where building the iOS or Android app.
+                            Path to a the build directory of the LibreOffice core source tree you want to use.
+                            In case of macOS, you MUST manually edit the ios/Mobile.xcodeproj/project.pbxproj
+                            file and change the references to "../ios-device" to refer to the corresponding
+                            LibreOffice core source directory (which typically would be the same as the build
+                            directory you specify with this option).]))
+
+AC_ARG_WITH([logfile],
+            AS_HELP_STRING([--with-logfile=<path>],
+                           [Path to the location of the logfile.]))
+
+AC_ARG_WITH([poco-includes],
+            AS_HELP_STRING([--with-poco-includes=<path>],
+                           [Path to the "include" directory with the Poco headers]))
+
+AC_ARG_WITH([poco-libs],
+            AS_HELP_STRING([--with-poco-libs=<path>],
+                           [Path to the "lib" directory with the Poco libraries]))
+
+AC_ARG_WITH([libpng-includes],
+            AS_HELP_STRING([--with-libpng-includes=<path>],
+                           [Path to the "include" directory with the libpng headers]))
+
+AC_ARG_WITH([libpng-libs],
+            AS_HELP_STRING([--with-libpng-libs=<path>],
+                           [Path to the "lib" directory with the libpng libraries]))
+
+AC_ARG_WITH([cppunit-includes],
+            AS_HELP_STRING([--with-cppunit-includes=<path>],
+                           [Path to the "include" directory with the Cppunit headers]))
+
+AC_ARG_WITH([cppunit-libs],
+            AS_HELP_STRING([--with-cppunit-libs=<path>],
+                           [Path to the "lib" directory with the Cppunit libraries]))
+
+AC_ARG_ENABLE([ssl],
+            AS_HELP_STRING([--disable-ssl],
+                           [Compile without SSL support]))
+
+AC_ARG_WITH([support-public-key],
+            AS_HELP_STRING([--with-support-public-key=<public-key-name.pub>],
+                [Implements signed key with expiration required for support. Targeted at LibreOffice Online Service Providers.]))
+
+AC_ARG_WITH([max-connections],
+            AS_HELP_STRING([--with-max-connections],
+                           [Set the limit on the total number of client connections. Def: 20, Min: 3.]))
+
+AC_ARG_WITH([max-documents],
+             AS_HELP_STRING([--with-max-documents],
+                           [Set the limit on the total number of documents. Def: 10, Min: 2.]))
+
+AC_ARG_WITH([sanitizer],
+             AS_HELP_STRING([--with-sanitizer],
+                           [Enable one or more compatible sanitizers. E.g. --with-sanitizer=address,undefined,leak]))
+
+AC_ARG_WITH([compiler-plugins],
+            AS_HELP_STRING([--with-compiler-plugins=<path>],
+                [Experimental! Unlikely to work for anyone except Noel! Enable compiler plugins that will perform additional checks during
+                 building.]))
+
+AC_ARG_ENABLE([setcap],
+            AS_HELP_STRING([--disable-setcap],
+                          [Do not set capabilities on files. For packaging builds]))
+
+AC_ARG_ENABLE([werror],
+            AS_HELP_STRING([--disable-werror],
+                          [Do not turn warnings into errors.]))
+
+AC_ARG_ENABLE([vereign],
+            AS_HELP_STRING([--enable-vereign],
+                          [Set Vereign document_signing_url configuration key to the default app.vereign.com.]))
+# Handle options
+AS_IF([test "$enable_debug" = yes -a -n "$with_poco_libs"],
+      [POCO_DEBUG_SUFFIX=d],
+      [POCO_DEBUG_SUFFIX=])
+
+ENABLE_DEBUG=
+LOOLWSD_LOGLEVEL="warning"
+LOOLWSD_LOG_TO_FILE="false"
+LOOLWSD_LOGFILE="/var/log/loolwsd.log"
+LOOLWSD_ANONYMIZE_USER_DATA=false
+LOLEAFLET_LOGGING="false"
+debug_msg="secure mode: product build"
+anonym_msg=""
+if test "$enable_debug" = "yes"; then
+   AC_DEFINE([ENABLE_DEBUG],1,[Whether to compile in some extra debugging support code and disable some security pieces])
+   ENABLE_DEBUG=true
+   LOOLWSD_LOGLEVEL="trace"
+   LOOLWSD_LOG_TO_FILE="true"
+   LOOLWSD_LOGFILE="/tmp/loolwsd.log"
+   LOOLWSD_ANONYMIZE_USER_DATA=false
+   LOLEAFLET_LOGGING="true"
+   debug_msg="low security debugging mode"
+else
+    AC_DEFINE([ENABLE_DEBUG],0,[Whether to compile in some extra debugging support code and disable some security pieces])
+fi
+AC_SUBST(ENABLE_DEBUG)
+AC_SUBST(LOOLWSD_LOGLEVEL)
+AC_SUBST(LOOLWSD_LOG_TO_FILE)
+AC_SUBST(LOLEAFLET_LOGGING)
+
+ENABLE_BROWSERSYNC=
+browsersync_msg="disabled: copy files to the target directory"
+if test "$enable_browsersync" = "yes"; then
+   AC_DEFINE([ENABLE_BROWSERSYNC],1,[Whether to create symlinks instead of copying files to the target dorectory to run browsersync])
+   ENABLE_BROWSERSYNC=true
+   browsersync_msg="enabled: create symlinks in the target directory"
+else
+    AC_DEFINE([ENABLE_BROWSERSYNC],0,[Whether to create symlinks instead of copying files to the target dorectory to run browsersync])
+fi
+AC_SUBST(ENABLE_BROWSERSYNC)
+
+if test -n "$with_logfile" ; then
+   LOOLWSD_LOGFILE="$with_logfile"
+fi
+AC_SUBST(LOOLWSD_LOGFILE)
+
+if test "$enable_anonymization" = "yes" ; then
+   LOOLWSD_ANONYMIZE_USER_DATA=true
+   anonym_msg="anonymization of user-data is enabled"
+fi
+AC_DEFINE_UNQUOTED([LOOLWSD_ANONYMIZE_USER_DATA],[$LOOLWSD_ANONYMIZE_USER_DATA],[Enable permanent anonymization in logs])
+AC_SUBST(LOOLWSD_ANONYMIZE_USER_DATA)
+
+if test -z "$anonym_msg";  then
+  anonym_msg="anonymization of user-data is disabled"
+fi
+
+# macOS: When configuring for building the app itself, on macOS, we need these.
+# But not when just configuring for building the JS on Linux, for copying over
+# to the Mac.
+# Android: We need these to setup the CMakeLists.txt properly.
+LOBUILDDIR=
+POCOINCLUDE=
+POCOLIB=
+POCODEBUG=
+if test \( "$enable_iosapp" = "yes" -a `uname -s` = "Darwin" \) -o \( "$enable_androidapp" = "yes" \); then
+   AC_MSG_CHECKING([for LibreOffice build tree to build against])
+   if test -z "$with_lo_builddir"; then
+      AC_MSG_ERROR([You MUST use the --with-lo-builddir option when configuring the mobile app build tree.])
+   fi
+
+   LOBUILDDIR="$with_lo_builddir"
+   # Sanity check, just a random object file in the LibreOffice build tree
+   if test \( "$enable_iosapp" = "yes" -a -f "$LOBUILDDIR/workdir/CxxObject/vcl/ios/iosinst.o" \) -o \( "$enable_androidapp" = "yes" -a -f "$LOBUILDDIR/workdir/LinkTarget/StaticLibrary/liblibpng.a" \); then
+       AC_MSG_RESULT([$LOBUILDDIR])
+   else
+       AC_MSG_ERROR([This is not a LibreOffice core build directory: $LOBUILDDIR])
+   fi
+
+   AC_MSG_CHECKING([for Poco include directory to build against])
+   if test -z "$with_poco_includes"; then
+      AC_MSG_ERROR([You MUST use the --with-poco-includes option when configuring the mobile app build tree.])
+   fi
+
+   POCOINCLUDE="$with_poco_includes"
+   # Sanity check
+   if test -f "$POCOINCLUDE/Poco/Poco.h"; then
+       AC_MSG_RESULT([$POCOINCLUDE])
+   else
+       AC_MSG_ERROR([This is not a Poco include directory: $POCOINCLUDE])
+   fi
+
+   AC_MSG_CHECKING([for Poco lib directory to build against])
+   if test -z "$with_poco_libs"; then
+      AC_MSG_ERROR([You MUST use the --with-poco-libs option when configuring the mobile app build tree.])
+   fi
+
+   POCOLIB="$with_poco_libs"
+   # Sanity check
+   if test -f "$POCOLIB/libPocoFoundation.a"; then
+       AC_MSG_RESULT([$POCOLIB])
+   else
+       AC_MSG_ERROR([This is not a Poco lib directory: $POCOLIB])
+   fi
+
+   if test "$ENABLE_DEBUG" = "true" ; then
+       POCODEBUG=d
+   fi
+fi
+AC_SUBST(LOBUILDDIR)
+AC_SUBST(POCOINCLUDE)
+AC_SUBST(POCOLIB)
+AC_SUBST(POCODEBUG)
+
+LIBPNG_INCLUDES="$with_libpng_includes"
+LIBPNG_LIBS="$with_libpng_libs"
+LOKIT_PATH=`readlink -f $with_lokit_path`
+if test "$enable_androidapp" = "yes"; then
+   if test -z "$LIBPNG_INCLUDES" ; then
+      LIBPNG_INCLUDES="$LOBUILDDIR/workdir/UnpackedTarball/libpng"
+   fi
+   if test -z "$LIBPNG_LIBS" ; then
+      LIBPNG_LIBS="$LOBUILDDIR/workdir/LinkTarget/StaticLibrary"
+   fi
+   if test -z "$LOKIT_PATH" ; then
+      LOKIT_PATH=`readlink -f $LOBUILDDIR/include`
+   fi
+fi
+AC_SUBST(LIBPNG_INCLUDES)
+AC_SUBST(LIBPNG_LIBS)
+AC_SUBST(LOKIT_PATH)
+
+ENABLE_ANDROIDAPP=
+ANDROID_PACKAGE_NAME=
+ANDROID_PACKAGE_VERSIONCODE=
+if test "$enable_androidapp" = "yes"; then
+    ENABLE_ANDROIDAPP=true
+
+    AC_MSG_CHECKING([for Android package name])
+    if test -z "$with_android_package_name" -o "$with_android_package_name" = "no"; then
+        ANDROID_PACKAGE_NAME="org.libreoffice.androidapp"
+        AC_MSG_RESULT([not set, using $ANDROID_PACKAGE_NAME])
+    else
+        ANDROID_PACKAGE_NAME="$with_android_package_name"
+        AC_MSG_RESULT([$ANDROID_PACKAGE_NAME])
+    fi
+
+    AC_MSG_CHECKING([for Android package versionCode])
+    if test -z "$with_android_package_versioncode" -o "$with_android_package_versioncode" = "no"; then
+        ANDROID_PACKAGE_VERSIONCODE="1"
+        AC_MSG_RESULT([not set, using $ANDROID_PACKAGE_VERSIONCODE])
+    else
+        ANDROID_PACKAGE_VERSIONCODE="$with_android_package_versioncode"
+        AC_MSG_RESULT([$ANDROID_PACKAGE_VERSIONCODE])
+    fi
+fi
+AC_SUBST(ENABLE_ANDROIDAPP)
+AM_CONDITIONAL([ENABLE_ANDROIDAPP], [test "$ENABLE_ANDROIDAPP" = "true"])
+AC_SUBST(ANDROID_PACKAGE_NAME)
+AC_SUBST(ANDROID_PACKAGE_VERSIONCODE)
+
+APP_NAME="LOOL"
+if test -n "$with_app_name"; then
+   APP_NAME="$with_app_name"
+fi
+AC_DEFINE_UNQUOTED([APP_NAME],["$APP_NAME"],[The user-visible name of the app you build.])
+AC_SUBST(APP_NAME)
+
+VENDOR=
+AC_MSG_CHECKING([for vendor])
+if test -z "$with_vendor" -o "$with_vendor" = "no"; then
+    VENDOR="$USERNAME"
+
+    if test -z "$VENDOR"; then
+        VENDOR="$USER"
+    fi
+
+    if test -z "$VENDOR"; then
+        VENDOR="`id -u -n`"
+    fi
+
+    AC_MSG_RESULT([not set, using $VENDOR])
+else
+    VENDOR="$with_vendor"
+    AC_MSG_RESULT([$VENDOR])
+fi
+AC_SUBST(VENDOR)
+
+INFO_URL='https://www.libreoffice.org'
+if test -n "$with_info_url" -a "$with_info_url" != "no"; then
+    INFO_URL="$with_info_url"
+fi
+AC_SUBST(INFO_URL)
+
+ENABLE_IOSAPP=
+IOSAPP_BUNDLE_VERSION=
+
+if test "$enable_iosapp" = "yes"; then
+   ENABLE_IOSAPP=true
+
+   if test -f BUNDLE-VERSION; then
+       IOSAPP_BUNDLE_VERSION=$(cat BUNDLE-VERSION)
+   else
+       IOSAPP_BUNDLE_VERSION=1
+   fi
+   echo $IOSAPP_BUNDLE_VERSION >BUNDLE-VERSION
+fi
+
+AC_SUBST(ENABLE_IOSAPP)
+AM_CONDITIONAL([ENABLE_IOSAPP], [test "$ENABLE_IOSAPP" = "true"])
+AC_SUBST(IOSAPP_BUNDLE_VERSION)
+
+AC_MSG_CHECKING([for custom icon theme])
+CUSTOM_ICONS_DIRECTORY=
+if test -d "$with_icon_theme"; then
+    CUSTOM_ICONS_DIRECTORY=`readlink -f $with_icon_theme`
+    AC_MSG_RESULT([$CUSTOM_ICONS_DIRECTORY])
+else
+    AC_MSG_RESULT([no])
+fi
+AC_SUBST(CUSTOM_ICONS_DIRECTORY)
+
+ENABLE_GTKAPP=
+if test "$enable_gtkapp" = "yes"; then
+   ENABLE_GTKAPP=true
+fi
+AC_SUBST(ENABLE_GTKAPP)
+AM_CONDITIONAL([ENABLE_GTKAPP], [test "$ENABLE_GTKAPP" = "true"])
+
+MAX_CONNECTIONS=20
+AS_IF([test -n "$with_max_connections" && test "$with_max_connections" -gt "0"],
+      [MAX_CONNECTIONS="$with_max_connections"])
+AS_IF([test "$MAX_CONNECTIONS" -lt "3"],
+      [MAX_CONNECTIONS="3"])
+AC_DEFINE_UNQUOTED([MAX_CONNECTIONS],[$MAX_CONNECTIONS],[Limit the maximum number of open connections])
+AC_SUBST(MAX_CONNECTIONS)
+
+MAX_DOCUMENTS=10
+AS_IF([test -n "$with_max_documents" && test "$with_max_documents" -gt "0"],
+      [MAX_DOCUMENTS="$with_max_documents"])
+AS_IF([test "$MAX_DOCUMENTS" -gt "$MAX_CONNECTIONS"],
+      [MAX_DOCUMENTS="$MAX_CONNECTIONS"])
+AS_IF([test "$MAX_DOCUMENTS" -lt "2"],
+      [MAX_DOCUMENTS="2"])
+AC_DEFINE_UNQUOTED([MAX_DOCUMENTS],[$MAX_DOCUMENTS],[Limit the maximum number of open documents])
+AC_SUBST(MAX_DOCUMENTS)
+
+VEREIGN_URL=
+if test "$enable_vereign" = "yes"; then
+    VEREIGN_URL="https://app.vereign.com"
+fi
+AC_DEFINE_UNQUOTED([VEREIGN_URL],["$VEREIGN_URL"],[Default value of per_documents.document_signing_url])
+AC_SUBST(VEREIGN_URL)
+
+# Test for build environment
+
+AS_IF([test "$ENABLE_GTKAPP" != true],
+[CXXFLAGS="$CXXFLAGS -std=c++11"
+CXXFLAGS="$CXXFLAGS -Wall -Wextra -Wshadow"])
+
+CFLAGS="$CFLAGS -Wall -Wextra"
+
+AC_MSG_CHECKING([whether to turn warnings to errors])
+if test -z "$enable_werror" -o "$enable_werror" = "yes"; then
+    AC_MSG_RESULT([yes])
+    CXXFLAGS="$CXXFLAGS -Werror"
+    CFLAGS="$CFLAGS -Werror"
+else
+    AC_MSG_RESULT([no])
+fi
+
+AC_MSG_CHECKING([whether to turn sanitizers on])
+if test "x$with_sanitizer" != "x"; then
+    AC_MSG_RESULT([yes ($with_sanitizer)])
+    SANITIZER_FLAGS="-O1 -fno-omit-frame-pointer -fsanitize=$with_sanitizer -frtti -static-libasan"
+    CXXFLAGS="$CXXFLAGS $SANITIZER_FLAGS"
+    CFLAGS="$CFLAGS $SANITIZER_FLAGS"
+else
+    AC_MSG_RESULT([no])
+fi
+
+# check for C++11 support
+HAVE_CXX11=
+AC_MSG_CHECKING([whether $CXX supports C++17, C++14 or C++11])
+for flag in -std=c++17 -std=gnu++14 -std=gnu++1y -std=c++14 -std=c++1y -std=gnu++11 -std=gnu++0x -std=c++11 -std=c++0x ; do
+    save_CXXFLAGS=$CXXFLAGS
+    CXXFLAGS="$CXXFLAGS $flag -Werror"
+    AC_LANG_PUSH([C++])
+    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+        #include <algorithm>
+        #include <functional>
+        #include <vector>
+        void f(std::vector<int> & v, std::function<bool(int, int)> fn) {
+            std::sort(v.begin(), v.end(), fn);
+        }
+        ]])],[CXXFLAGS_CXX11=$flag])
+    AC_LANG_POP([C++])
+    CXXFLAGS=$save_CXXFLAGS
+    if test -n "$CXXFLAGS_CXX11"; then
+        HAVE_CXX11=TRUE
+        break
+    fi
+done
+if test "$HAVE_CXX11" = TRUE; then
+    AC_MSG_RESULT([yes ($CXXFLAGS_CXX11)])
+else
+    AC_MSG_ERROR(no)
+fi
+
+STD_FILESYSTEM=
+if test "$CXXFLAGS_CXX11" = "-std=c++17" -a "$ENABLE_ANDROIDAPP" != "true" ; then
+    save_CXXFLAGS=$CXXFLAGS
+    CXXFLAGS="$CXXFLAGS -Werror"
+    save_LIBS=$LIBS
+    LIBS="$save_LIBS -lstdc++fs"
+    AC_LANG_PUSH([C++])
+    AC_LINK_IFELSE([AC_LANG_SOURCE([[
+        #include <experimental/filesystem>
+        int main()
+        {
+            if (!std::experimental::filesystem::temp_directory_path().empty())
+                return 0;
+            return 1;
+        }
+        ]])],[STD_FILESYSTEM=experimental])
+    AC_LINK_IFELSE([AC_LANG_SOURCE([[
+        #include <filesystem>
+        int main()
+        {
+            if (!std::filesystem::temp_directory_path().empty())
+                return 0;
+            return 1;
+        }
+        ]])],[STD_FILESYSTEM=TRUE])
+    AC_LANG_POP([C++])
+    CXXFLAGS=$save_CXXFLAGS
+    LIBS=$save_LIBS
+fi
+
+if test -n "$STD_FILESYSTEM" ; then
+    LIBS="$LIBS -lstdc++fs"
+    AC_DEFINE([HAVE_STD_FILESYSTEM],1,[Whether the used C++ has support for std::filesystem.])
+    if test "$STD_FILESYSTEM" = "experimental" ; then
+        AC_DEFINE([HAVE_STD_FILESYSTEM_EXPERIMENTAL],1,[Whether the std::filesystem is in the experimental header.])
+    else
+        AC_DEFINE([HAVE_STD_FILESYSTEM_EXPERIMENTAL],0,[Whether the std::filesystem is in the experimental header.])
+    fi
+else
+    AC_DEFINE([HAVE_STD_FILESYSTEM],0,[Whether the used C++ has support for std::filesystem.])
+    AC_DEFINE([HAVE_STD_FILESYSTEM_EXPERIMENTAL],0,[Whether the std::filesystem is in the experimental header.])
+fi
+
+AS_IF([test -n "$LOKIT_PATH"],
+      [CPPFLAGS="$CPPFLAGS -I${LOKIT_PATH}"])
+lokit_msg="$LOKIT_PATH"
+
+AS_IF([test "$ENABLE_IOSAPP" != "true" -a "$ENABLE_ANDROIDAPP" != "true"],
+      [AC_MSG_CHECKING([for LibreOffice path])
+      if test -n "$with_lo_path"; then
+          # strip trailing '/' from LO_PATH, 'ln -s' with such path will otherwise fail
+          LO_PATH="${with_lo_path%/}"
+          AC_MSG_RESULT([found])
+      else
+          AC_MSG_RESULT([not found])
+          AC_MSG_ERROR([LibreOffice path must be configured: --with-lo-path])
+      fi
+      ])
+
+JAIL_PATH=not-set
+SYSTEMPLATE_PATH=not-set
+have_lo_path=false
+AC_MSG_CHECKING([whether to run tests against a LibreOffice])
+version_file="$with_lo_path/program/versionrc"
+if test -f $version_file; then
+    JAILS_PATH="\${abs_top_builddir}/jails"
+    SYSTEMPLATE_PATH="\${abs_top_builddir}/systemplate"
+    have_lo_path=true
+    lo_msg="test against $LO_PATH"
+    AC_MSG_RESULT([yes])
+else
+    lo_msg="no integration tests"
+    AC_MSG_RESULT([no])
+fi
+
+AC_SUBST(LO_PATH)
+AC_DEFINE_UNQUOTED([LO_PATH],["$LO_PATH"],[Path to LibreOffice installation])
+AC_SUBST(JAILS_PATH)
+AC_SUBST(SYSTEMPLATE_PATH)
+AM_CONDITIONAL(HAVE_LO_PATH,[test "$have_lo_path" = "true"])
+
+AS_IF([test -n "$with_poco_includes"],
+      [CPPFLAGS="$CPPFLAGS -isystem ${with_poco_includes}"])
+
+AS_IF([test -n "$with_poco_libs"],
+      [LDFLAGS="$LDFLAGS -L${with_poco_libs}"])
+
+AS_IF([test -n "$LIBPNG_INCLUDES"],
+      [CPPFLAGS="$CPPFLAGS -isystem ${LIBPNG_INCLUDES}"])
+
+AS_IF([test -n "$LIBPNG_LIBS"],
+      [LDFLAGS="$LDFLAGS -L${LIBPNG_LIBS}"])
+
+AS_IF([test -n "$with_cppunit_includes"],
+      [CPPFLAGS="$CPPFLAGS -isystem ${with_cppunit_includes}"])
+
+AS_IF([test -n "$with_cppunit_libs"],
+      [LDFLAGS="$LDFLAGS -L${with_cppunit_libs}"])
+
+AS_IF([test `uname -s` = Linux],
+      [AS_IF([test -n "$with_poco_libs"],
+             [LDFLAGS="$LDFLAGS -Wl,-rpath,${with_poco_libs}"])])
+
+AS_IF([test `uname -s` = Linux],
+      [AS_IF([test -n "$with_cppunit_libs"],
+             [LDFLAGS="$LDFLAGS -Wl,-rpath,${with_cppunit_libs}"])])
+
+AS_IF([test `uname -s` != Darwin],
+      [AC_SEARCH_LIBS([dlopen],
+                      [dl dld],
+                      [],
+                      [AC_MSG_ERROR([dlopen not found])])])
+
+AS_IF([test "$ENABLE_IOSAPP" != "true" -a "$ENABLE_ANDROIDAPP" != "true"],
+      [AC_SEARCH_LIBS([png_create_write_struct],
+                      [png],
+                      [],
+                      [AC_MSG_ERROR([libpng not available?])])
+       PKG_CHECK_MODULES([ZLIB], [zlib])
+
+       PKG_CHECK_MODULES([CPPUNIT], [cppunit])
+       ])
+
+AS_IF([test `uname -s` = Linux -a "$ENABLE_ANDROIDAPP" != "true"],
+      [AC_SEARCH_LIBS([cap_get_proc],
+                      [cap],
+                      [],
+                      [AC_MSG_ERROR([libcap not available?])])])
+
+AS_IF([test "$ENABLE_GTKAPP" = true],
+      [PKG_CHECK_MODULES([WEBKIT],[webkit2gtk-4.0])])
+
+AM_CONDITIONAL([ENABLE_DEBUG], [test "$ENABLE_DEBUG" = "true"])
+AM_CONDITIONAL([ENABLE_BROWSERSYNC], [test "$ENABLE_BROWSERSYNC" = "true"])
+
+mobile_app=
+ENABLE_MOBILEAPP=
+MOBILEAPP=0
+AC_MSG_CHECKING([Is this a mobile app])
+if test "$enable_gtkapp" = "yes" -o "$enable_iosapp" = "yes" -o "$enable_androidapp"; then
+     AC_MSG_RESULT([Yes])
+     mobile_app=true;
+     MOBILEAPP=1
+     ENABLE_MOBILEAPP=true
+else
+     AC_MSG_RESULT([No])
+fi
+AC_DEFINE_UNQUOTED([MOBILEAPP],[$MOBILEAPP],[Define to 1 if this is a mobileapp (eg. Android) build.])
+AC_SUBST(ENABLE_MOBILEAPP)
+AM_CONDITIONAL([ENABLE_MOBILEAPP], [test "$ENABLE_MOBILEAPP" = "true"])
+
+ENABLE_SSL=true
+if test "$enable_ssl" != "no" -a "$mobile_app" != "true"; then
+   ssl_msg="ssl enabled"
+   ENABLE_SSL=true
+   AC_DEFINE([ENABLE_SSL],1,[Whether to enable SSL])
+else
+   ssl_msg="insecure: ssl disabled"
+   ENABLE_SSL=false
+   AC_DEFINE([ENABLE_SSL],0,[Whether to enable SSL])
+fi
+AM_CONDITIONAL([ENABLE_SSL], [$ENABLE_SSL])
+AC_SUBST(ENABLE_SSL)
+
+AS_IF([test "$ENABLE_ANDROIDAPP" != "true"],
+      [AC_CHECK_HEADERS([security/pam_appl.h],
+                        [],
+                        [AC_MSG_ERROR([header security/pam_appl.h not found, install PAM development package])])
+       AC_CHECK_LIB(pam, pam_start, [], [AC_MSG_ERROR([No. Install PAM development package])])])
+
+AC_MSG_CHECKING([whether to build with support public key])
+if test "x$with_support_public_key" != "x"; then
+    AC_DEFINE([ENABLE_SUPPORT_KEY],1,[Whether to enable support key])
+
+    # generate the public key include
+    echo -e "#ifndef INCLUDED_SUPPORT_PUBLIC_KEY_HPP\n#define INCLUDED_SUPPORT_PUBLIC_KEY_HPP\n#include <string>\nconst static std::string SUPPORT_PUBLIC_KEY(" > "${srcdir}/common/support-public-key.hpp"
+    sed 's/\(.*\)/"\1\\n"/' "$with_support_public_key" >> "${srcdir}/common/support-public-key.hpp"
+    echo -e ");\n#endif" >> "${srcdir}/common/support-public-key.hpp"
+    AC_MSG_RESULT([yes])
+else
+    AC_DEFINE([ENABLE_SUPPORT_KEY],0,[Whether to enable support key])
+    rm -f "${srcdir}/common/support-public-key.hpp"
+    AC_MSG_RESULT([no])
+fi
+AC_SUBST(ENABLE_SUPPORT_KEY)
+
+LIBS="$LIBS -lPocoNet${POCO_DEBUG_SUFFIX} -lPocoNetSSL${POCO_DEBUG_SUFFIX} -lPocoUtil${POCO_DEBUG_SUFFIX} -lPocoJSON${POCO_DEBUG_SUFFIX} -lPocoXML${POCO_DEBUG_SUFFIX} -lPocoFoundation${POCO_DEBUG_SUFFIX} -lPocoCrypto${POCO_DEBUG_SUFFIX}"
+
+AS_IF([test "$ENABLE_SSL" = "true"],
+      [LIBS="$LIBS -lssl -lcrypto"])
+
+AS_IF([test "$ENABLE_IOSAPP" != "true"],
+      [AC_CHECK_HEADERS([LibreOfficeKit/LibreOfficeKit.h],
+                        [],
+                        [AC_MSG_ERROR([header LibreOfficeKit/LibreOfficeKit.h not found, perhaps you want to use --with-lokit-path])])
+       AC_CHECK_HEADERS([Poco/Net/WebSocket.h],
+                        [],
+                        [AC_MSG_ERROR([header Poco/Net/WebSocket.h not found, perhaps you want to use --with-poco-includes])])
+       DISABLE_SECCOMP=
+       if test "$enable_seccomp" != "no"; then
+           AC_CHECK_HEADERS([linux/seccomp.h],
+                            [],
+                            [AC_MSG_ERROR([critical security header linux/seccomp.h not found. If kernel on target system does not support SECCOMP, you can use --disable-seccomp, but mind the security consequences.])])
+           AC_DEFINE([DISABLE_SECCOMP],0,[Whether to disable SECCOMP])
+       else
+           AC_DEFINE([DISABLE_SECCOMP],1,[Whether to disable SECCOMP])
+       fi
+
+       AC_MSG_CHECKING([Whether OpenSSL has PKCS5_PBKDF2_HMAC()])
+       AC_COMPILE_IFELSE([AC_LANG_SOURCE([
+       #include <openssl/opensslv.h>
+       #if OPENSSL_VERSION_NUMBER < 0x10001000L
+       #error PKCS5_PBKDF2_HMAC() is in OpenSSL 1.0.1 or newer
+       #endif
+       ])],
+                         [AC_MSG_RESULT([yes])
+                          AC_DEFINE([HAVE_PKCS5_PBKDF2_HMAC],1,[whether OpenSSL has PKCS5_PBKDF2_HMAC()])],
+                         [AC_MSG_RESULT([no])
+                          AC_MSG_WARN([OpenSSL is too old. Secure password storage for Admin Console is not supported.])
+                          AC_DEFINE([HAVE_PKCS5_PBKDF2_HMAC],0,[Whether OpenSSL has PKCS5_PBKDF2_HMAC()])])
+
+       AC_MSG_CHECKING([POCO version])
+       AC_COMPILE_IFELSE([AC_LANG_SOURCE([
+       #include <Poco/Version.h>
+       #if POCO_VERSION < 0x01070100
+       #error Require Poco 1.7.1 or newer
+       #endif
+       ])],
+                         [AC_MSG_RESULT([OK])],
+                         [AC_MSG_ERROR([The POCO version is too old])])
+
+       # If poco is built with --unbundled, it uses the system pcre library
+       AC_MSG_CHECKING([If we need to link with -lpcre])
+       AC_LINK_IFELSE([AC_LANG_SOURCE([
+       #include <Poco/RegularExpression.h>
+       int main(int argc, char **argv)
+       {
+           (void)argc;
+           Poco::RegularExpression e("abc.[def]");
+           Poco::RegularExpression::Match m;
+           return e.match(argv[[1]], m);
+       }
+       ])],
+                      [AC_MSG_RESULT([No])],
+                      [AC_MSG_RESULT([Yes])
+                       LIBS="$LIBS -lpcre"])
+
+       ])
+
+AS_IF([test `uname -s` = "Linux"],
+      # We need npm and node only on Linux, both in the normal Online case,
+      # and when only building JS for the iOS app. When building the iOS app itself on macOS,
+      # don't do this.
+      [AC_PATH_PROG(NPM, npm, no)
+       if test "$NPM" = "no"; then
+           AC_MSG_ERROR([npm required to build loleaflet, but not installed])
+       else
+           NPM_VER=`npm -v | awk -F. '{ print (($1 * 100) + $2) * 100 + $3;}'`
+           if test "$NPM_VER" -lt 50000; then
+               AC_MSG_ERROR([This npm version is too old, upgrade to >= 5.0.0])
+           fi
+       fi
+
+       AC_PATH_PROG(NODE, node, no)
+       if test "$NODE" = "no"; then
+           AC_MSG_ERROR([node required to build loleaflet, but not installed])
+       else
+           NODE_VER=`node --version | sed 's/^v//' | awk -F. '{ print (($1 * 100) + $2) * 100 + $3;}'`
+           if test "$NODE_VER" -lt 60000; then
+               AC_MSG_ERROR([This node version is old, upgrade to >= 6.0.0])
+           fi
+       fi
+       ])
+
+# need this after the other stuff that uses the compiler because we don't want to run configure-tests with the plugins enabled
+AS_IF([test -n "$with_compiler_plugins"],
+      [CPPFLAGS="$CPPFLAGS -Xclang -load -Xclang ${with_compiler_plugins}/compilerplugins/obj/plugin.so -Xclang -add-plugin -Xclang loplugin -Xclang -plugin-arg-loplugin -Xclang --lool-base-path=\${abs_top_srcdir}"])
+
+LOOLWSD_CONFIGDIR=${sysconfdir}/${PACKAGE}
+AC_SUBST(LOOLWSD_CONFIGDIR)
+
+LOOLWSD_DATADIR=${datadir}/${PACKAGE}
+AC_SUBST(LOOLWSD_DATADIR)
+
+AS_IF([test "$enable_setcap" != "no"],
+      [AC_DEFINE([ENABLE_SETCAP],1,[Whether to enable setting of capabilities])],
+      [AC_DEFINE([ENABLE_SETCAP],0,[Whether to enable setting of capabilities])])
+
+AM_CONDITIONAL([ENABLE_SETCAP], [test "$enable_setcap" != "no"])
+
+ENABLE_SETCAP=
+if test "$enable_setcap" != "no"; then
+    ENABLE_SETCAP=true
+    setcap_msg="setcap enabled"
+else
+    setcap_msg="setcap disabled"
+fi
+
+AC_SUBST(ENABLE_SETCAP)
+
+AC_CONFIG_LINKS([discovery.xml:discovery.xml])
+AC_CONFIG_LINKS([loolkitconfig.xcu:loolkitconfig.xcu])
+AC_CONFIG_LINKS([loleaflet/package.json:loleaflet/package.json])
+AC_LINK_FILES([loleaflet/archived-packages], [loleaflet/archived-packages])
+
+APP_BRANDING_DIR=
+if test "$with_app_branding" != no -a -d "$with_app_branding"; then
+    APP_BRANDING_DIR="$with_app_branding"
+fi
+AC_SUBST(APP_BRANDING_DIR)
+
+AS_IF([test "$ENABLE_IOSAPP" = "true"],
+      [
+       if test `uname -s` = "Darwin"; then
+          IOSAPP_FONTS=''
+          mkdir -p ios/Mobile/Fonts
+          if test "$with_iosapp_fonts" != no -a -d "$with_iosapp_fonts"; then
+              AC_MSG_NOTICE([copying fonts to be bundled])
+              IOSAPP_FONTS=`find "$with_iosapp_fonts" -type f |
+                            while read fname; do
+                               cp "$fname" ios/Mobile/Fonts
+                               echo '<string>Fonts/'$(basename $fname)'</string>'
+                            done`
+          fi
+          rm -rf ios/Mobile/Branding
+          mkdir ios/Mobile/Branding
+          if test -n "$APP_BRANDING_DIR" ; then
+              AC_MSG_NOTICE([copying branding files])
+              mkdir -p ios/Mobile/Branding
+              (cd "$APP_BRANDING_DIR" && tar cf - .) | (cd ios/Mobile/Branding && tar xf -)
+          else
+              # A Branding/branding.css file must exist, it is
+              # referenced unconditionally in loleaflet.html in the
+              # iOS app.
+              touch ios/Mobile/Branding/branding.css
+          fi
+       fi
+      ])
+AC_SUBST(IOSAPP_FONTS)
+
+AC_CONFIG_FILES([Makefile
+                 android/app/appSettings.gradle
+                 android/lib/libSettings.gradle
+                 android/lib/src/main/cpp/CMakeLists.txt
+                 android/Makefile
+                 gtk/Makefile
+                 ios/config.h
+                 ios/Mobile/Info.plist
+                 test/Makefile
+                 loleaflet/Makefile
+                 loleaflet/npm-shrinkwrap.json
+                 loolwsd.spec
+                 loolwsd.xml
+                 debian/loolwsd.postinst])
+AC_CONFIG_FILES([test/run_unit.sh],[chmod +x test/run_unit.sh])
+
+AC_OUTPUT
+
+AC_LANG_POP
+
+AS_IF([test "$ENABLE_IOSAPP" = "true"],
+      [
+       if test `uname -s` = "Darwin"; then
+          # Sadly I can't figure out any better way to avoid having to
+          # edit the Xcode project file manually. Create symlinks to the
+          # LibreOffice core source and build trees, and to the Poco
+          # installation.
+
+          AC_MSG_NOTICE([creating symbolic links for the Xcode project to use])
+
+          if test -L lobuilddir-symlink; then
+             rm -f lobuilddir-symlink
+          elif test -f lobuilddir-symlink; then
+             AC_MSG_ERROR([lobuilddir-symlink exists and is not a symbolic link])
+          fi
+          ln -s "$LOBUILDDIR" lobuilddir-symlink
+
+          if test -L pocoinclude-symlink; then
+             rm -f pocoinclude-symlink
+          elif test -f pocoinclude-symlink; then
+             AC_MSG_ERROR([pocoinclude-symlink exists and is not a symbolic link])
+          fi
+          ln -s "$POCOINCLUDE" pocoinclude-symlink
+
+          if test -L pocolib-symlink; then
+             rm -f pocolib-symlink
+          elif test -f pocolib-symlink; then
+             AC_MSG_ERROR([pocolib-symlink exists and is not a symbolic link])
+          fi
+          ln -s "$POCOLIB" pocolib-symlink
+
+          eval `grep 'export ICU_MAJOR=' "$LOBUILDDIR/config_host.mk"`
+          if test -L ICU.dat; then
+             rm -f ICU.dat
+          elif test -f ICU.dat; then
+             AC_MSG_ERROR([ICU.dat exists and is not a symbolic link])
+          fi
+          ln -s "$LOBUILDDIR/workdir/CustomTarget/ios/resources/icudt${ICU_MAJOR}l.dat" ICU.dat
+
+          # Sadly Xcode doesn't like it if AppIcon.appiconset is a
+          # symlink, so make it a directory of symlinks to the actual png
+          # and json files.
+          rm -rf ios/Mobile/Assets.xcassets/AppIcon.appiconset
+          mkdir ios/Mobile/Assets.xcassets/AppIcon.appiconset
+          if test -n "$with_iosapp_appicon"; then
+             ln -s "$with_iosapp_appicon"/* ios/Mobile/Assets.xcassets/AppIcon.appiconset
+          else
+             ln -s ios/Mobile/Assets.xcassets/Empty.appiconset/* ios/Mobile/Assets.xcassets/AppIcon.appiconset
+          fi
+       fi
+      ],
+      [
+       echo "
+Configuration:
+    LOKit path              ${lokit_msg}
+    LO path                 $LO_PATH
+    LO integration tests    ${lo_msg}
+    SSL support             $ssl_msg
+    Debug & low security    $debug_msg
+    Anonymization           $anonym_msg
+    Set capabilities        $setcap_msg
+    Browsersync             $browsersync_msg
+
+    \$ make # to compile"
+if test -n "$with_lo_path"; then
+echo "    \$ make run # to start loolwsd
+    \$ make sync-writer|calc|impress # to start browsersync with specified app
+"
+fi
+      ])
+
+dnl vim:set shiftwidth=4 softtabstop=4 expandtab:
