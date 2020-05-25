@@ -4,7 +4,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-FROM ubuntu:18.04
+FROM ubuntu:20.04
 
 # get the latest fixes
 RUN apt-get update && apt-get upgrade -y
@@ -12,7 +12,7 @@ RUN apt-get update && apt-get upgrade -y
 # install LibreOffice run-time dependencies
 # install adduser, findutils, openssl and cpio that we need later
 # install an editor
-RUN apt-get -y install locales-all libpng16-16 fontconfig adduser cpio findutils nano libpocoxml50 libpocoutil50 libpoconetssl50 libpoconet50 libpocojson50 libpocofoundation50 libpococrypto50 libcap2-bin openssl inotify-tools procps
+RUN apt-get -y install locales-all libpng16-16 fontconfig adduser cpio findutils nano libpocoxml62 libpocoutil62 libpoconetssl62 libpoconet62 libpocojson62 libpocofoundation62 libpococrypto62 libcap2-bin openssl inotify-tools procps
 
 # tdf#117557 - Add CJK Fonts to LibreOffice Online Docker Image
 RUN apt-get -y install fonts-wqy-zenhei fonts-wqy-microhei fonts-droid-fallback fonts-noto-cjk

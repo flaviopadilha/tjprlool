@@ -27,7 +27,9 @@ L.Control.Menubar = L.Control.extend({
 					{name: _('Word 2003 Document (.doc)'), id: 'downloadas-doc', type: 'action'},
 					{name: _('Word Document (.docx)'), id: 'downloadas-docx', type: 'action'},
 					{name: _('Rich Text (.rtf)'), id: 'downloadas-rtf', type: 'action'}]},
-				{name: _('Sign document'), id: 'signdocument', type: 'action'},
+
+				// ALTERACAO TJPR
+				//{name: _('Sign document'), id: 'signdocument', type: 'action'},
 				{type: 'separator'},
 				{name: _('Close document'), id: 'closedocument', type: 'action'}
 			]},
@@ -236,9 +238,14 @@ L.Control.Menubar = L.Control.extend({
 					{uno: '.uno:OnlineAutoFormat'}]}
 			]},
 			{name: _UNO('.uno:HelpMenu', 'text'), id: 'help', type: 'menu', menu: [
-				{name: _('Online Help'), id: 'online-help', type: 'action'},
-				{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'},
-				{name: _('About'), id: 'about', type: 'action'}]
+                                //{name: _('Online Help'), id: 'online-help', type: 'action'},
+                                //{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'},
+                                //{name: _('About'), id: 'about', type: 'action'}]
+
+				// ALTERACAO TJPR
+				//{name: _('Online Help'), id: 'online-help', type: 'action'},
+				{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'}
+				//{name: _('About'), id: 'about', type: 'action'}]
 			},
 			{name: _('Last modification'), id: 'last-mod', type: 'action', tablet: false}
 		],
@@ -335,9 +342,14 @@ L.Control.Menubar = L.Control.extend({
 					{name: _('None (Do not check spelling)'), id: 'nonelanguage', uno: '.uno:LanguageStatus?Language:string=Default_LANGUAGE_NONE'}]}
 			]},
 			{name: _UNO('.uno:HelpMenu', 'presentation'), id: 'help', type: 'menu', menu: [
-				{name: _('Online Help'), id: 'online-help', type: 'action'},
-				{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'},
-				{name: _('About'), id: 'about', type: 'action'}]
+                                //{name: _('Online Help'), id: 'online-help', type: 'action'},
+                                //{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'},
+                                //{name: _('About'), id: 'about', type: 'action'}]
+
+				// ALTERACAO TJPR
+				//{name: _('Online Help'), id: 'online-help', type: 'action'},
+				{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'}
+				//{name: _('About'), id: 'about', type: 'action'}]
 			},
 			{name: _('Last modification'), id: 'last-mod', type: 'action', tablet: false}
 		],
@@ -450,9 +462,14 @@ L.Control.Menubar = L.Control.extend({
 				{uno: '.uno:GoalSeekDialog'}
 			]},
 			{name: _UNO('.uno:HelpMenu', 'spreadsheet'), id: 'help', type: 'menu', menu: [
-				{name: _('Online Help'), id: 'online-help', type: 'action'},
-				{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'},
-				{name: _('About'), id: 'about', type: 'action'}]
+                                //{name: _('Online Help'), id: 'online-help', type: 'action'},
+                                //{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'},
+                                //{name: _('About'), id: 'about', type: 'action'}]
+
+				// ALTERACAO TJPR
+				//{name: _('Online Help'), id: 'online-help', type: 'action'},
+				{name: _('Keyboard shortcuts'), id: 'keyboard-shortcuts', type: 'action'}
+				//{name: _('About'), id: 'about', type: 'action'}]
 			},
 			{name: _('Last modification'), id: 'last-mod', type: 'action', tablet: false}
 		],
@@ -463,8 +480,11 @@ L.Control.Menubar = L.Control.extend({
 				{name: _UNO('.uno:SaveAs', 'text'), id: 'saveas', type: 'action'},
 				{name: _('Share...'), id:'shareas', type: 'action'},
 				{name: _UNO('.uno:Print', 'text'), id: 'print', type: 'action'},
-				{name: _('See revision history'), id: 'rev-history', type: 'action'},
-				{name: _('Sign document'), id: 'signdocument', type: 'action'}
+				{name: _('See revision history'), id: 'rev-history', type: 'action'}
+
+				// ALTERACAO TJPR
+				//{name: _('See revision history'), id: 'rev-history', type: 'action'},
+				//{name: _('Sign document'), id: 'signdocument', type: 'action'}
 			]},
 			{name: !window.ThisIsAMobileApp ? _('Download as') : _('Export as'), id: 'downloadas', type: 'menu', menu: [
 				{name: _('PDF Document (.pdf)'), id: 'downloadas-pdf', type: 'action'},

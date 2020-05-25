@@ -13,6 +13,14 @@
 # * ONLINE_EXTRA_BUILD_OPTIONS - extra build options for online
 # * NO_DOCKER_IMAGE - if set, don't build the docker image itself, just do all the preps
 
+
+DOCKER_HUB_REPO="tjprlool/libreoffice"
+ONLINE_EXTRA_BUILD_OPTIONS="--with-max-connections=100000 --with-max-documents=100000"
+LIBREOFFICE_BRANCH="libreoffice-6-4"
+
+
+#LIBREOFFICE_BUILD_TARGET="libreoffice-6-4"
+
 # check we can sudo without asking a pwd
 echo "Trying if sudo works without a password"
 echo
