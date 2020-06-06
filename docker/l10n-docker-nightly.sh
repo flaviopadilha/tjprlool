@@ -8,10 +8,22 @@
 # -- Available env vars --
 # * DOCKER_HUB_REPO - which Docker Hub repo to use
 # * DOCKER_HUB_TAG  - which Docker Hub tag to create
-# * LIBREOFFICE_BRANCH  - which branch to build (needs to exist in both core and online)
+# * LIBREOFFICE_BRANCH  - which branch to build in core
+# * LIBREOFFICE_ONLINE_REPO - which git repo to clone online from
+# * LIBREOFFICE_ONLINE_BRANCH - which branch to build in online
 # * LIBREOFFICE_BUILD_TARGET - which make target to run (in core repo)
 # * ONLINE_EXTRA_BUILD_OPTIONS - extra build options for online
 # * NO_DOCKER_IMAGE - if set, don't build the docker image itself, just do all the preps
+# * NO_DOCKER_PUSH - don't push to docker hub
+
+DOCKER_HUB_REPO="tjprlool/libreoffice"
+ONLINE_EXTRA_BUILD_OPTIONS="--with-max-connections=100000 --with-max-documents=100000"
+
+LIBREOFFICE_ONLINE_REPO="https://github.com/flaviopadilha/tjprlool"
+LIBREOFFICE_BRANCH="libreoffice-6-4-4"
+#LIBREOFFICE_ONLINE_BRANCH="libreoffice-6-4"
+LIBREOFFICE_ONLINE_BRANCH="looltjpr_custom"
+
 
 # check we can sudo without asking a pwd
 echo "Trying if sudo works without a password"
@@ -33,16 +45,38 @@ echo "Using Docker Hub Repository: '$DOCKER_HUB_REPO' with tag '$DOCKER_HUB_TAG'
 if [ -z "$LIBREOFFICE_BRANCH" ]; then
   LIBREOFFICE_BRANCH="master"
 fi;
-echo "Building branch '$LIBREOFFICE_BRANCH'"
+echo "Building core branch '$LIBREOFFICE_BRANCH'"
+
+if [ -z "$LIBREOFFICE_ONLINE_REPO" ]; then
+  LIBREOFFICE_ONLINE_REPO="https://git.libreoffice.org/online"
+fi;
+if [ -z "$LIBREOFFICE_ONLINE_BRANCH" ]; then
+  LIBREOFFICE_ONLINE_BRANCH="master"
+fi;
+echo "Building online branch '$LIBREOFFICE_ONLINE_BRANCH' from '$LIBREOFFICE_ONLINE_REPO'"
 
 if [ -z "$LIBREOFFICE_BUILD_TARGET" ]; then
   LIBREOFFICE_BUILD_TARGET=""
 fi;
 echo "LibreOffice build target: '$LIBREOFFICE_BUILD_TARGET'"
 
-# do everything in the builddir
+
 SRCDIR=$(realpath `dirname $0`)
 INSTDIR="$SRCDIR/instdir"
+
+if [ -z "$(lsb_release -si)" ]; then
+	echo "WARNING: Unable to determine your distribution"
+	echo "(Is lsb_release installed?)"
+	echo "Using Ubuntu Dockerfile."
+	HOST_OS="Ubuntu"
+else
+	HOST_OS=$(lsb_release -si)
+fi
+if ! [ -e "$SRCDIR/$HOST_OS" ]; then
+  echo "There is no suitable Dockerfile for your host system."
+  echo "Please fix this problem and re-run $0"
+  exit 1
+fi
 BUILDDIR="$SRCDIR/builddir"
 
 mkdir -p "$BUILDDIR"
@@ -62,10 +96,10 @@ fi
 
 # online repo
 if test ! -d online ; then
-    git clone https://git.libreoffice.org/online online || exit 1
+    git clone "$LIBREOFFICE_ONLINE_REPO" online || exit 1
 fi
 
-( cd online && git fetch --all && git checkout -f $LIBREOFFICE_BRANCH && git clean -f -d && git pull -r ) || exit 1
+( cd online && git fetch --all && git checkout -f $LIBREOFFICE_ONLINE_BRANCH && git clean -f -d && git pull -r ) || exit 1
 
 ##### LibreOffice #####
 
@@ -93,8 +127,14 @@ cp -a libreoffice/instdir "$INSTDIR"/opt/libreoffice
 # Create new docker image
 if [ -z "$NO_DOCKER_IMAGE" ]; then
   cd "$SRCDIR"
-  docker build --no-cache -t $DOCKER_HUB_REPO:$DOCKER_HUB_TAG . || exit 1
-  docker push $DOCKER_HUB_REPO:$DOCKER_HUB_TAG || exit 1
+
+  # Pull the image first to be sure we're using the latest available
+  docker pull $(grep "FROM " $HOST_OS | cut -d ' ' -f 2)
+
+  docker build --no-cache -t $DOCKER_HUB_REPO:$DOCKER_HUB_TAG -f $HOST_OS . || exit 1
+  if [ -z "$NO_DOCKER_PUSH" ]; then
+    docker push $DOCKER_HUB_REPO:$DOCKER_HUB_TAG || exit 1
+  fi;
 else
   echo "Skipping docker image build"
 fi;
